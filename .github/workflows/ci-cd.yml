@@ -1,0 +1,297 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  AWS_REGION: us-west-2
+  ECR_REPOSITORY_FRONTEND: react-python-app-frontend
+  ECR_REPOSITORY_BACKEND: react-python-app-backend
+  ECS_CLUSTER: react-python-app-production-cluster
+  ECS_SERVICE_FRONTEND: react-python-app-production-frontend
+  ECS_SERVICE_BACKEND: react-python-app-production-backend
+
+jobs:
+  # Code Quality & Security
+  quality-checks:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Cache Python dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('backend/requirements.txt') }}
+
+    # Frontend Quality Checks
+    - name: Install frontend dependencies
+      working-directory: ./frontend
+      run: npm ci
+
+    - name: Frontend lint
+      working-directory: ./frontend
+      run: npm run lint
+
+    - name: Frontend type check
+      working-directory: ./frontend
+      run: npx tsc --noEmit
+
+    - name: Frontend tests
+      working-directory: ./frontend
+      run: npm run test:coverage
+
+    # Backend Quality Checks
+    - name: Install backend dependencies
+      working-directory: ./backend
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Backend lint with flake8
+      working-directory: ./backend
+      run: |
+        pip install flake8
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+    - name: Backend tests with pytest
+      working-directory: ./backend
+      run: |
+        pip install pytest pytest-cov
+        pytest --cov=. --cov-report=xml
+
+    # Security Scanning
+    - name: Run Snyk to check for vulnerabilities
+      uses: snyk/actions/node@master
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      with:
+        args: --file=frontend/package.json
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        files: ./backend/coverage.xml,./frontend/coverage/lcov.info
+
+  # Build and Test
+  build-and-test:
+    needs: quality-checks
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+      elasticsearch:
+        image: docker.elastic.co/elasticsearch/elasticsearch:8.10.0
+        env:
+          discovery.type: single-node
+          xpack.security.enabled: false
+        options: >-
+          --health-cmd "curl -f http://localhost:9200/_cluster/health"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 9200:9200
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    # Build and test Frontend
+    - name: Build frontend Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./frontend
+        file: ./frontend/Dockerfile
+        tags: frontend:test
+        load: true
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    # Build and test Backend
+    - name: Build backend Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./backend
+        file: ./backend/Dockerfile
+        tags: backend:test
+        load: true
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    # Integration Tests
+    - name: Run integration tests
+      run: |
+        docker-compose -f docker-compose.test.yml up -d
+        sleep 30
+        docker-compose -f docker-compose.test.yml exec -T backend pytest tests/integration/
+        docker-compose -f docker-compose.test.yml down
+
+  # Deploy to Development
+  deploy-dev:
+    if: github.ref == 'refs/heads/develop'
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    environment: development
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Build and push frontend image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG ./frontend
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG
+
+    - name: Build and push backend image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG ./backend
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG
+
+    - name: Deploy to EKS
+      run: |
+        aws eks update-kubeconfig --name $EKS_CLUSTER_NAME
+        envsubst < k8s/deployment.yaml | kubectl apply -f -
+        kubectl rollout status deployment/frontend-deployment -n development
+        kubectl rollout status deployment/backend-deployment -n development
+
+  # Deploy to Production
+  deploy-prod:
+    if: github.ref == 'refs/heads/main'
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Build and push frontend image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG ./frontend
+        docker tag $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:latest
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY_FRONTEND:latest
+
+    - name: Build and push backend image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG ./backend
+        docker tag $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:latest
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY_BACKEND:latest
+
+    # Blue-Green Deployment
+    - name: Deploy to Production (Blue-Green)
+      run: |
+        aws eks update-kubeconfig --name $EKS_CLUSTER_NAME
+        # Deploy to green environment
+        envsubst < k8s/deployment-green.yaml | kubectl apply -f -
+        kubectl rollout status deployment/frontend-deployment-green -n production
+        kubectl rollout status deployment/backend-deployment-green -n production
+        
+        # Health check
+        kubectl wait --for=condition=available --timeout=300s deployment/frontend-deployment-green -n production
+        kubectl wait --for=condition=available --timeout=300s deployment/backend-deployment-green -n production
+        
+        # Switch traffic
+        kubectl patch service frontend-service -n production -p '{"spec":{"selector":{"version":"green"}}}'
+        kubectl patch service backend-service -n production -p '{"spec":{"selector":{"version":"green"}}}'
+        
+        # Clean up blue environment
+        kubectl delete deployment frontend-deployment-blue backend-deployment-blue -n production --ignore-not-found
+
+  # Database Migration
+  migrate-database:
+    if: github.ref == 'refs/heads/main'
+    needs: deploy-prod
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Run database migrations
+      run: |
+        aws eks update-kubeconfig --name $EKS_CLUSTER_NAME
+        kubectl create job migrate-$(date +%s) --from=cronjob/db-migrate -n production
+        kubectl wait --for=condition=complete --timeout=300s job/migrate-$(date +%s) -n production

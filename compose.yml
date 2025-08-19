@@ -1,0 +1,290 @@
+version: '3.8'
+
+services:
+  # Database Services
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: techvaultdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-databases.sql:/docker-entrypoint-initdb.d/init-databases.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - techvault-network
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - techvault-network
+
+  # Microservices
+  api-gateway:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    environment:
+      - PORT=5000
+      - AUTH_SERVICE_URL=http://auth-service:5001
+      - PRODUCT_SERVICE_URL=http://product-service:5002
+      - CART_SERVICE_URL=http://cart-service:5003
+      - PAYMENT_SERVICE_URL=http://payment-service:5004
+      - ORDER_SERVICE_URL=http://order-service:5005
+    expose:
+      - "5000"
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      product-service:
+        condition: service_healthy
+      cart-service:
+        condition: service_healthy
+      payment-service:
+        condition: service_healthy
+      order-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - techvault-network
+
+  auth-service:
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    environment:
+      - PORT=5001
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/authdb
+      - JWT_SECRET_KEY=auth-jwt-secret-change-in-production
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - techvault-network
+
+  product-service:
+    build:
+      context: ./product-service
+      dockerfile: Dockerfile
+    environment:
+      - PORT=5002
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/productdb
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - techvault-network
+
+  cart-service:
+    build:
+      context: ./cart-service
+      dockerfile: Dockerfile
+    environment:
+      - PORT=5003
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/cartdb
+      - REDIS_URL=redis://redis:6379
+      - SECRET_KEY=cart-secret-key-change-in-production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - techvault-network
+
+  payment-service:
+    build:
+      context: ./payment-service
+      dockerfile: Dockerfile
+    environment:
+      - PORT=5004
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/paymentdb
+      - JWT_SECRET_KEY=payment-jwt-secret-change-in-production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - techvault-network
+
+  order-service:
+    build:
+      context: ./order-service
+      dockerfile: Dockerfile
+    environment:
+      - PORT=5005
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/orderdb
+      - JWT_SECRET_KEY=order-jwt-secret-change-in-production
+      - CART_SERVICE_URL=http://cart-service:5003
+      - PAYMENT_SERVICE_URL=http://payment-service:5004
+    depends_on:
+      postgres:
+        condition: service_healthy
+      cart-service:
+        condition: service_healthy
+      payment-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5005/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - techvault-network
+
+  # Apache Airflow for Analytics
+  airflow-webserver:
+    build:
+      context: ./airflow
+      dockerfile: Dockerfile
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql://postgres:postgres@postgres:5432/airflow_db
+      - AIRFLOW__CORE__FERNET_KEY=VsjaxVTYjdIzo5IxvAtQp+9PDn91qwETjnIuHiu36G4=
+      - AIRFLOW__WEBSERVER__SECRET_KEY=your-webserver-secret-key
+      - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=true
+      - AIRFLOW__CORE__LOAD_EXAMPLES=false
+      - AIRFLOW__WEBSERVER__EXPOSE_CONFIG=true
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB_ANALYTICS=techvaultdb
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+      - airflow_logs:/opt/airflow/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: >
+      bash -c "
+        airflow db init &&
+        airflow users create --username admin --firstname TechVault --lastname Admin --role Admin --email admin@techvault.com --password admin &&
+        airflow webserver --port 8080
+      "
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - techvault-network
+
+  airflow-scheduler:
+    build:
+      context: ./airflow
+      dockerfile: Dockerfile
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql://postgres:postgres@postgres:5432/airflow_db
+      - AIRFLOW__CORE__FERNET_KEY=VsjaxVTYjdIzo5IxvAtQp+9PDn91qwETjnIuHiu36G4=
+      - AIRFLOW__WEBSERVER__SECRET_KEY=your-webserver-secret-key
+      - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=true
+      - AIRFLOW__CORE__LOAD_EXAMPLES=false
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB_ANALYTICS=techvaultdb
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+      - airflow_logs:/opt/airflow/logs
+    depends_on:
+      airflow-webserver:
+        condition: service_healthy
+    command: airflow scheduler
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type SchedulerJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - techvault-network
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: production
+    environment:
+      - VITE_API_URL=http://localhost/api
+    expose:
+      - "80"
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    networks:
+      - techvault-network
+
+  # Nginx Load Balancer/Router
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - frontend
+      - api-gateway
+    networks:
+      - techvault-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  airflow_logs:
+
+networks:
+  techvault-network:
+    driver: bridge

@@ -1,0 +1,7 @@
+apache-airflow[postgres,snowflake]==2.7.3
+psycopg2-binary==2.9.7
+snowflake-connector-python==3.6.0
+snowflake-sqlalchemy==1.5.1
+pandas==2.1.3
+sqlalchemy==1.4.53
+requests==2.31.0
