@@ -1,112 +1,55 @@
-# TechVault - Microservices E-commerce Platform
+# TechVault - Cloud-Native E-commerce Platform
 
-TechVault is a modern e-commerce platform built with microservices architecture, featuring a React frontend and multiple Python Flask backend services.
+**TechVault** is a cloud-native, microservices-based e-commerce platform specializing in premium electronics. Built with modern DevOps practices, it demonstrates enterprise-grade architecture patterns including containerized microservices, Infrastructure as Code, and CI/CD automation.
 
 ## Architecture Overview
 
-### Microservices
-- **API Gateway** (Port 5000) - Routes requests to appropriate microservices
-- **Auth Service** (Port 5001) - User authentication and authorization
-- **Product Service** (Port 5002) - Product catalog management
-- **Cart Service** (Port 5003) - Shopping cart functionality
-- **Payment Service** (Port 5004) - Payment processing
-- **Order Service** (Port 5005) - Order management
+![TechVault Production Architecture](docs/techvault-architecture.png)
 
-### Frontend
-- **React App** (Port 3000) - Modern React TypeScript frontend with Material-UI
+*Cloud-native microservices architecture on AWS ECS Fargate with comprehensive monitoring and cost optimization.*
 
-### Infrastructure
-- **PostgreSQL** (Port 5432) - Primary database with separate schemas for each service
-- **Redis** (Port 6379) - Caching and session storage
+## Technology Stack
 
-## Features
+- **Frontend**: React 18 + TypeScript, Vite
+- **Backend**: Node.js Gateway, Python/Flask + Go/Gin microservices  
+- **Infrastructure**: AWS ECS Fargate, RDS PostgreSQL, Redis, Elasticsearch
+- **DevOps**: Terraform, GitHub Actions, CloudWatch monitoring
+- **Analytics**: Apache Airflow + Snowflake ETL pipeline
 
-### Public Access
-- Browse products without authentication
-- View product details and categories
-- Add items to cart (session-based for guests)
+## Key Features
 
-### Authenticated Features
-- User registration and login
-- Persistent cart across sessions
-- Secure checkout and payment processing
-- Order history and tracking
-- User profile management
+### Infrastructure & DevOps
+- **Modular Terraform**: 6 specialized modules with multi-environment support
+- **Cost Optimized**: Three deployment tiers (Free tier ~$47/month, Production ~$340/month)
+- **Service-Specific CI/CD**: Individual GitHub Actions pipelines for each microservice
+- **Container Orchestration**: ECS Fargate with auto-scaling and blue/green deployments
+- **Comprehensive Monitoring**: CloudWatch logging, metrics, alarms, and dashboards
 
-## Getting Started
+### Application Features
+- **Public Access**: Browse products, view details, guest cart functionality
+- **Authenticated Features**: User accounts, persistent cart, secure checkout, order tracking
+- **Microservices**: Independent services for auth, products, cart, payment, orders
+- **Search & Analytics**: Elasticsearch product search, Airflow ETL pipelines
+
+## Quick Start
 
 ### Prerequisites
 - Docker and Docker Compose
-- Node.js 18+ (for frontend development)
-- Python 3.11+ (for backend development)
+- Node.js 18+ and Python 3.11+ (for development)
 
-### Quick Start with Docker
+### Local Development
+```bash
+git clone https://github.com/rotimiAbiola/TechVault.git
+cd TechVault
+docker compose up --build
+```
 
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd react-python-app
-   ```
+**Service URLs:**
+- Frontend: http://localhost:3000
+- API Gateway: http://localhost:5000
+- Health Check: http://localhost:5000/health
 
-2. **Start all services**
-   ```bash
-   docker compose up --build
-   ```
-
-3. **Access the application**
-   - Frontend: http://localhost:3000
-   - API Gateway: http://localhost:5000
-   - Health Check: http://localhost:5000/health
-
-### Service URLs
-
-| Service | URL | Description |
-|---------|-----|-------------|
-| Frontend | http://localhost:3000 | React application |
-| API Gateway | http://localhost:5000 | Main API endpoint |
-| Auth Service | http://localhost:5001 | Authentication |
-| Product Service | http://localhost:5002 | Product catalog |
-| Cart Service | http://localhost:5003 | Shopping cart |
-| Payment Service | http://localhost:5004 | Payment processing |
-| Order Service | http://localhost:5005 | Order management |
-
-## API Endpoints
-
-### Authentication
-- `POST /api/register` - User registration
-- `POST /api/login` - User login
-- `GET /api/profile` - Get user profile
-- `PUT /api/profile` - Update user profile
-
-### Products (Public)
-- `GET /api/products` - List products with pagination and filters
-- `GET /api/products/{id}` - Get product details
-- `GET /api/products/categories` - Get product categories
-- `GET /api/products/brands` - Get product brands
-
-### Cart
-- `GET /api/cart` - Get current cart
-- `POST /api/cart/items` - Add item to cart
-- `PUT /api/cart/items/{id}` - Update cart item
-- `DELETE /api/cart/items/{id}` - Remove cart item
-- `DELETE /api/cart/clear` - Clear cart
-
-### Payment (Authenticated)
-- `POST /api/payment/create-intent` - Create payment intent
-- `POST /api/payment/process` - Process payment
-- `GET /api/payment/{id}` - Get payment details
-- `GET /api/payment/user/history` - Payment history
-
-### Orders (Authenticated)
-- `GET /api/orders` - List user orders
-- `POST /api/orders` - Create new order
-- `GET /api/orders/{order_number}` - Get order details
-- `POST /api/orders/{order_number}/confirm` - Confirm order
-- `POST /api/orders/{order_number}/cancel` - Cancel order
-
-## Development
-
-### Project Structure
+## Project Structure
 ```
 ├── frontend/                 # React TypeScript frontend
 ├── gateway/                  # API Gateway service
@@ -115,81 +58,36 @@ TechVault is a modern e-commerce platform built with microservices architecture,
 ├── cart-service/            # Shopping cart microservice
 ├── payment-service/         # Payment processing microservice
 ├── order-service/           # Order management microservice
-├── scripts/                 # Database initialization scripts
-├── compose.yml             # Production deployment configuration
-└── README.md
+├── terraform/               # Infrastructure as Code
+├── .github/workflows/       # CI/CD pipelines
+└── aws/task-definitions/    # ECS deployment configs
 ```
 
-### Environment Variables
+## Core API Endpoints
 
-Each service can be configured with environment variables:
+### Authentication
+- `POST /api/register` - User registration
+- `POST /api/login` - User login
+- `GET /api/profile` - Get/update user profile
 
-**Database Configuration:**
-- `DATABASE_URL` - PostgreSQL connection string
-- `REDIS_URL` - Redis connection string
+### Products (Public)
+- `GET /api/products` - List products with pagination
+- `GET /api/products/{id}` - Product details
+- `GET /api/products/categories` - Product categories
 
-**Security:**
-- `JWT_SECRET_KEY` - JWT signing secret
-- `SECRET_KEY` - Flask session secret
-
-**Service Discovery:**
-- `AUTH_SERVICE_URL` - Auth service URL
-- `PRODUCT_SERVICE_URL` - Product service URL
-- `CART_SERVICE_URL` - Cart service URL
-- `PAYMENT_SERVICE_URL` - Payment service URL
-- `ORDER_SERVICE_URL` - Order service URL
-
-### Database Schema
-
-Each microservice has its own database:
-- `authdb` - User accounts and authentication
-- `productdb` - Product catalog and inventory
-- `cartdb` - Shopping cart data
-- `paymentdb` - Payment transactions
-- `orderdb` - Order information and history
-
-## Security Features
-
-- JWT-based authentication
-- Password hashing with secure algorithms
-- CORS protection
-- Input validation and sanitization
-- Database connection security
-- Container security with non-root users
-
-## Monitoring and Health Checks
-
-- Individual service health endpoints: `/health`
-- Aggregated health check: `http://localhost:5000/health`
-- Docker health checks for all services
-- Service dependency management
-
-## Sample Products
-
-The platform comes pre-loaded with sample TechVault electronics including:
-- Latest smartphones (iPhone 15 Pro Max, Samsung Galaxy S24 Ultra)
-- Laptops (MacBook Pro 16", Dell XPS 13)
-- Gaming consoles (PlayStation 5, Nintendo Switch OLED)
-- Audio equipment (AirPods Pro 3rd Gen)
-- Tablets (iPad Pro 12.9")
+### Cart & Orders
+- `GET/POST/PUT/DELETE /api/cart/*` - Cart management
+- `GET/POST /api/orders` - Order creation and history
+- `POST /api/payment/*` - Payment processing
 
 ## Production Deployment
 
-The application is production-ready with:
-- Multi-stage Docker builds
-- Security hardening
-- Health checks
-- Proper logging
-- Error handling
-- Database connection pooling
+**Infrastructure**: Terraform modules for VPC, Security, Database, ECS, Storage, Monitoring
+**CI/CD**: GitHub Actions with service-specific pipelines
+**Monitoring**: CloudWatch logging, metrics, alarms, and dashboards
+**Security**: JWT authentication, container security, secrets management
 
-## Contributing
+## Documentation
 
-1. Fork the repository
-2. Create a feature branch
-3. Make changes and test thoroughly
-4. Submit a pull request
-
-## License
-
-This project is licensed under the MIT License.
+- **[Task Definitions](aws/task-definitions/README.md)** - ECS deployment configuration
+- **[Development Scripts](scripts/README.md)** - Local development utilities

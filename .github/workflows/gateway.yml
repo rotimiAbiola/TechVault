@@ -1,0 +1,139 @@
+name: API Gateway CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'gateway/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'gateway/**'
+
+env:
+  AWS_REGION: us-west-2
+  ECR_REPOSITORY: techvault-gateway
+  ECS_CLUSTER: techvault-production-cluster
+  ECS_SERVICE: techvault-production-gateway
+
+jobs:
+  test:
+    name: Test API Gateway
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: gateway/package-lock.json
+
+    - name: Install dependencies
+      working-directory: gateway
+      run: npm ci
+
+    - name: Run linting
+      working-directory: gateway
+      run: npm run lint
+
+    - name: Run tests
+      working-directory: gateway
+      run: npm test
+
+    - name: Run security audit
+      working-directory: gateway
+      run: npm audit --audit-level=high
+
+  build-and-deploy-dev:
+    name: Build and Deploy to Development
+    if: github.ref == 'refs/heads/develop'
+    needs: [test]
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Build and push Docker image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      working-directory: gateway
+      run: |
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:dev-latest
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:dev-latest
+
+    - name: Deploy to ECS Development
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        TASK_DEFINITION=$(aws ecs describe-task-definition --task-definition gateway-dev --query taskDefinition)
+        NEW_TASK_DEFINITION=$(echo $TASK_DEFINITION | jq --arg IMAGE "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" '.containerDefinitions[0].image = $IMAGE')
+        echo $NEW_TASK_DEFINITION | jq 'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .placementConstraints, .compatibilities, .registeredAt, .registeredBy)' > task-def.json
+        
+        aws ecs register-task-definition --cli-input-json file://task-def.json
+        aws ecs update-service --cluster $ECS_CLUSTER-dev --service $ECS_SERVICE-dev --task-definition gateway-dev
+        aws ecs wait services-stable --cluster $ECS_CLUSTER-dev --services $ECS_SERVICE-dev
+
+  build-and-deploy-prod:
+    name: Build and Deploy to Production
+    if: github.ref == 'refs/heads/main'
+    needs: [test]
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Build and push Docker image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      working-directory: gateway
+      run: |
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+    - name: Deploy to ECS Production
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        TASK_DEFINITION=$(aws ecs describe-task-definition --task-definition gateway-prod --query taskDefinition)
+        NEW_TASK_DEFINITION=$(echo $TASK_DEFINITION | jq --arg IMAGE "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" '.containerDefinitions[0].image = $IMAGE')
+        echo $NEW_TASK_DEFINITION | jq 'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .placementConstraints, .compatibilities, .registeredAt, .registeredBy)' > task-def.json
+        
+        aws ecs register-task-definition --cli-input-json file://task-def.json
+        aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE --task-definition gateway-prod
+        aws ecs wait services-stable --cluster $ECS_CLUSTER --services $ECS_SERVICE

@@ -1,26 +1,24 @@
-FROM python:3.11-slim
+FROM node:18-alpine
 
-# Set working directory
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+# Install curl for health checks
+RUN apk add --no-cache curl
 
-# Copy requirements first for better caching
-COPY requirements.txt .
+# Copy package files
+COPY package*.json ./
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install dependencies
+RUN npm ci --only=production
 
 # Copy application code
 COPY . .
 
 # Create non-root user
-RUN groupadd -r appuser && useradd -r -g appuser appuser
-RUN chown -R appuser:appuser /app
-USER appuser
+RUN addgroup -g 1001 -S nodejs
+RUN adduser -S nodeuser -u 1001
+RUN chown -R nodeuser:nodejs /app
+USER nodeuser
 
 # Expose port
 EXPOSE 5000
@@ -30,4 +28,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:5000/health || exit 1
 
 # Run the application
-CMD ["python", "app.py"]
+CMD ["node", "index.js"]

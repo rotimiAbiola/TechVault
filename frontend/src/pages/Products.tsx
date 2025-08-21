@@ -10,7 +10,6 @@ import {
   Chip
 } from '@mui/material';
 import { productsAPI } from '../services/api';
-import { useAuth } from '../contexts/AuthContext';
 
 interface Product {
   id: number;
@@ -23,34 +22,24 @@ const Products: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { isAuthenticated } = useAuth();
 
   useEffect(() => {
     const fetchProducts = async () => {
       try {
-        if (!isAuthenticated) {
-          setError('Please log in to view products');
-          setLoading(false);
-          return;
-        }
-
+        setLoading(true);
         const data = await productsAPI.getProducts();
         setProducts(data.products || []);
         setError(null);
       } catch (err: any) {
         console.error('Failed to fetch products:', err);
-        if (err.response?.status === 401) {
-          setError('Authentication required. Please log in.');
-        } else {
-          setError('Failed to load products. Please try again later.');
-        }
+        setError('Failed to load products. Please try again later.');
       } finally {
         setLoading(false);
       }
     };
 
     fetchProducts();
-  }, [isAuthenticated]);
+  }, []);
 
   if (loading) {
     return (
@@ -69,10 +58,6 @@ const Products: React.FC = () => {
       {error ? (
         <Alert severity="error" sx={{ mb: 2 }}>
           {error}
-        </Alert>
-      ) : !isAuthenticated ? (
-        <Alert severity="warning" sx={{ mb: 2 }}>
-          Please log in to view products.
         </Alert>
       ) : products.length === 0 ? (
         <Alert severity="info" sx={{ mb: 2 }}>

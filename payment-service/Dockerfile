@@ -1,22 +1,21 @@
-FROM python:3.11-slim
+FROM openjdk:17-jdk-slim
 
-# Set working directory
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    postgresql-client \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+# Install curl and maven for health checks and building
+RUN apt-get update && apt-get install -y curl maven && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first for better caching
-COPY requirements.txt .
+# Copy pom.xml
+COPY pom.xml .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Download dependencies
+RUN mvn dependency:go-offline
 
-# Copy application code
-COPY . .
+# Copy source code
+COPY src ./src
+
+# Build the application
+RUN mvn clean package -DskipTests
 
 # Create non-root user
 RUN groupadd -r appuser && useradd -r -g appuser appuser
@@ -31,4 +30,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:5004/health || exit 1
 
 # Run the application
-CMD ["python", "app.py"]
+CMD ["java", "-jar", "target/payment-service-1.0.0.jar"]

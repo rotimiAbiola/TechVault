@@ -1,0 +1,76 @@
+{
+  "family": "techvault-gateway",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "executionRoleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/techvaultTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "gateway",
+      "image": "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/techvault-gateway:${IMAGE_TAG}",
+      "portMappings": [
+        {
+          "containerPort": 5000,
+          "protocol": "tcp"
+        }
+      ],
+      "essential": true,
+      "environment": [
+        {
+          "name": "NODE_ENV",
+          "value": "${NODE_ENV}"
+        },
+        {
+          "name": "PORT",
+          "value": "5000"
+        },
+        {
+          "name": "AUTH_SERVICE_URL",
+          "value": "${AUTH_SERVICE_URL}"
+        },
+        {
+          "name": "PRODUCT_SERVICE_URL",
+          "value": "${PRODUCT_SERVICE_URL}"
+        },
+        {
+          "name": "PAYMENT_SERVICE_URL",
+          "value": "${PAYMENT_SERVICE_URL}"
+        },
+        {
+          "name": "CORS_ORIGIN",
+          "value": "${FRONTEND_URL}"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "JWT_SECRET",
+          "valueFrom": "/techvault/${ENVIRONMENT}/gateway/jwt-secret"
+        },
+        {
+          "name": "REDIS_URL",
+          "valueFrom": "/techvault/${ENVIRONMENT}/redis/connection-string"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/techvault-gateway",
+          "awslogs-region": "${AWS_REGION}",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "curl -f http://localhost:5000/health || exit 1"
+        ],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      }
+    }
+  ]
+}

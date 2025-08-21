@@ -1,0 +1,76 @@
+{
+  "family": "techvault-payment-service",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "executionRoleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/techvaultTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "payment-service",
+      "image": "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/techvault-payment-service:${IMAGE_TAG}",
+      "portMappings": [
+        {
+          "containerPort": 5003,
+          "protocol": "tcp"
+        }
+      ],
+      "essential": true,
+      "environment": [
+        {
+          "name": "FLASK_ENV",
+          "value": "${ENVIRONMENT}"
+        },
+        {
+          "name": "PORT",
+          "value": "5003"
+        },
+        {
+          "name": "PYTHONPATH",
+          "value": "/app"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "DATABASE_URL",
+          "valueFrom": "/techvault/${ENVIRONMENT}/payment-service/database-url"
+        },
+        {
+          "name": "STRIPE_SECRET_KEY",
+          "valueFrom": "/techvault/${ENVIRONMENT}/payment-service/stripe-secret-key"
+        },
+        {
+          "name": "STRIPE_WEBHOOK_SECRET",
+          "valueFrom": "/techvault/${ENVIRONMENT}/payment-service/stripe-webhook-secret"
+        },
+        {
+          "name": "JWT_SECRET_KEY",
+          "valueFrom": "/techvault/${ENVIRONMENT}/payment-service/jwt-secret"
+        },
+        {
+          "name": "REDIS_URL",
+          "valueFrom": "/techvault/${ENVIRONMENT}/redis/connection-string"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/techvault-payment-service",
+          "awslogs-region": "${AWS_REGION}",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "curl -f http://localhost:5003/health || exit 1"
+        ],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      }
+    }
+  ]
+}

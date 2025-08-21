@@ -9,11 +9,12 @@ variable "environment" {
   type        = string
   default     = "production"
 }
+}
 
 variable "project_name" {
   description = "Project name"
   type        = string
-  default     = "react-python-app"
+  default     = "techvault"
 }
 
 variable "vpc_cidr" {
@@ -118,6 +119,24 @@ variable "log_retention_days" {
   default     = 30
 }
 
+variable "alert_email" {
+  description = "Email address for CloudWatch alerts"
+  type        = string
+  default     = ""
+}
+
+variable "use_nat_instance" {
+  description = "Use NAT instance instead of NAT gateway (cost optimization)"
+  type        = bool
+  default     = false
+}
+
+variable "key_pair_name" {
+  description = "EC2 Key Pair name for NAT instance SSH access"
+  type        = string
+  default     = ""
+}
+
 variable "alert_email_addresses" {
   description = "Email addresses for alerts"
   type        = list(string)
@@ -146,6 +165,24 @@ variable "elasticsearch_instance_count" {
   description = "Number of Elasticsearch instances"
   type        = number
   default     = 2
+}
+
+variable "enable_elasticsearch" {
+  description = "Enable Elasticsearch domain"
+  type        = bool
+  default     = true
+}
+
+variable "redis_node_type" {
+  description = "Redis node type"
+  type        = string
+  default     = "cache.t3.micro"
+}
+
+variable "redis_num_cache_nodes" {
+  description = "Number of Redis cache nodes"
+  type        = number
+  default     = 1
 }
 
 variable "tags" {

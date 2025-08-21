@@ -1,69 +1,83 @@
+# VPC Outputs
 output "vpc_id" {
   description = "ID of the VPC"
-  value       = aws_vpc.main.id
+  value       = module.vpc.vpc_id
 }
 
+output "public_subnet_ids" {
+  description = "IDs of the public subnets"
+  value       = module.vpc.public_subnet_ids
+}
+
+output "private_subnet_ids" {
+  description = "IDs of the private subnets"
+  value       = module.vpc.private_subnet_ids
+}
+
+output "database_subnet_ids" {
+  description = "IDs of the database subnets"
+  value       = module.vpc.database_subnet_ids
+}
+
+# ECS Outputs
 output "ecs_cluster_name" {
   description = "Name of the ECS cluster"
-  value       = aws_ecs_cluster.main.name
+  value       = module.ecs.ecs_cluster_name
 }
 
 output "alb_dns_name" {
-  description = "DNS name of the load balancer"
-  value       = aws_lb.main.dns_name
+  description = "DNS name of the Application Load Balancer"
+  value       = module.ecs.alb_dns_name
 }
 
 output "alb_zone_id" {
   description = "Zone ID of the load balancer"
-  value       = aws_lb.main.zone_id
+  value       = module.ecs.alb_zone_id
 }
 
-output "frontend_service_name" {
-  description = "Name of the frontend ECS service"
-  value       = aws_ecs_service.frontend.name
-}
-
-output "backend_service_name" {
-  description = "Name of the backend ECS service"
-  value       = aws_ecs_service.backend.name
-}
-
+# Database Outputs
 output "rds_endpoint" {
   description = "RDS instance endpoint"
-  value       = aws_db_instance.main.endpoint
-  sensitive   = true
-}
-
-output "elasticsearch_endpoint" {
-  description = "Elasticsearch domain endpoint"
-  value       = aws_elasticsearch_domain.main.endpoint
+  value       = module.database.rds_endpoint
   sensitive   = true
 }
 
 output "redis_endpoint" {
   description = "Redis cluster endpoint"
-  value       = aws_elasticache_replication_group.main.primary_endpoint_address
+  value       = module.database.redis_endpoint
   sensitive   = true
 }
 
-output "ecr_frontend_repository_url" {
-  description = "URL of the frontend ECR repository"
-  value       = aws_ecr_repository.frontend.repository_url
+output "elasticsearch_endpoint" {
+  description = "Elasticsearch domain endpoint"
+  value       = module.database.elasticsearch_endpoint
+  sensitive   = true
 }
 
-output "ecr_backend_repository_url" {
-  description = "URL of the backend ECR repository"
-  value       = aws_ecr_repository.backend.repository_url
+# Storage Outputs
+output "database_url_parameter_name" {
+  description = "SSM parameter name for database URL"
+  value       = module.storage.database_url_parameter_name
 }
 
-output "cloudwatch_dashboard_url" {
-  description = "URL of the CloudWatch dashboard"
-  value       = "https://${var.aws_region}.console.aws.amazon.com/cloudwatch/home?region=${var.aws_region}#dashboards:name=${aws_cloudwatch_dashboard.main.dashboard_name}"
+output "redis_url_parameter_name" {
+  description = "SSM parameter name for Redis URL"
+  value       = module.storage.redis_url_parameter_name
+}
+
+output "elasticsearch_url_parameter_name" {
+  description = "SSM parameter name for Elasticsearch URL"
+  value       = module.storage.elasticsearch_url_parameter_name
+}
+
+output "jwt_secret_parameter_name" {
+  description = "SSM parameter name for JWT secret"
+  value       = module.storage.jwt_secret_parameter_name
 }
 
 output "application_url" {
   description = "URL of the application"
-  value       = "http://${aws_lb.main.dns_name}"
+  value       = "http://${module.ecs.alb_dns_name}"
 }
 
 output "api_url" {
