@@ -1,0 +1,181 @@
+name: Payment Service CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'payment-service/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'payment-service/**'
+
+env:
+  AWS_REGION: us-west-2
+  ECR_REPOSITORY: techvault-payment
+  ECS_CLUSTER: techvault-production-cluster
+  ECS_SERVICE: techvault-production-payment
+
+jobs:
+  test:
+    name: Test Payment Service
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Cache Maven dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('payment-service/pom.xml') }}
+
+    - name: Run tests
+      working-directory: payment-service
+      run: ./mvnw test
+
+    - name: Run integration tests
+      working-directory: payment-service
+      run: ./mvnw verify -P integration-tests
+
+    - name: Generate test coverage
+      working-directory: payment-service
+      run: ./mvnw jacoco:report
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: payment-service/target/site/jacoco/jacoco.xml
+
+    - name: Run static analysis
+      working-directory: payment-service
+      run: ./mvnw compile spotbugs:check
+
+    - name: Build application
+      working-directory: payment-service
+      run: ./mvnw clean compile
+
+    - name: Run security scan
+      uses: github/super-linter@v4
+      env:
+        DEFAULT_BRANCH: main
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        VALIDATE_JAVA: true
+        JAVA_FILE_NAME: payment-service/
+
+  build-and-deploy-dev:
+    name: Build and Deploy to Development
+    if: github.ref == 'refs/heads/develop'
+    needs: [test]
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Build application
+      working-directory: payment-service
+      run: ./mvnw clean package -DskipTests
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Build and push Docker image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      working-directory: payment-service
+      run: |
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:dev-latest
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:dev-latest
+
+    - name: Deploy to ECS Development
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        TASK_DEFINITION=$(aws ecs describe-task-definition --task-definition payment-dev --query taskDefinition)
+        NEW_TASK_DEFINITION=$(echo $TASK_DEFINITION | jq --arg IMAGE "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" '.containerDefinitions[0].image = $IMAGE')
+        echo $NEW_TASK_DEFINITION | jq 'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .placementConstraints, .compatibilities, .registeredAt, .registeredBy)' > task-def.json
+        
+        aws ecs register-task-definition --cli-input-json file://task-def.json
+        aws ecs update-service --cluster $ECS_CLUSTER-dev --service $ECS_SERVICE-dev --task-definition payment-dev
+        aws ecs wait services-stable --cluster $ECS_CLUSTER-dev --services $ECS_SERVICE-dev
+
+  build-and-deploy-prod:
+    name: Build and Deploy to Production
+    if: github.ref == 'refs/heads/main'
+    needs: [test]
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Build application
+      working-directory: payment-service
+      run: ./mvnw clean package -DskipTests
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Build and push Docker image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      working-directory: payment-service
+      run: |
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+    - name: Deploy to ECS Production
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        TASK_DEFINITION=$(aws ecs describe-task-definition --task-definition payment-prod --query taskDefinition)
+        NEW_TASK_DEFINITION=$(echo $TASK_DEFINITION | jq --arg IMAGE "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" '.containerDefinitions[0].image = $IMAGE')
+        echo $NEW_TASK_DEFINITION | jq 'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .placementConstraints, .compatibilities, .registeredAt, .registeredBy)' > task-def.json
+        
+        aws ecs register-task-definition --cli-input-json file://task-def.json
+        aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE --task-definition payment-prod
+        aws ecs wait services-stable --cluster $ECS_CLUSTER --services $ECS_SERVICE

@@ -1,0 +1,72 @@
+{
+  "family": "techvault-product-service",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "executionRoleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/techvaultTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "product-service",
+      "image": "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/techvault-product-service:${IMAGE_TAG}",
+      "portMappings": [
+        {
+          "containerPort": 5002,
+          "protocol": "tcp"
+        }
+      ],
+      "essential": true,
+      "environment": [
+        {
+          "name": "GIN_MODE",
+          "value": "${GIN_MODE}"
+        },
+        {
+          "name": "PORT",
+          "value": "5002"
+        },
+        {
+          "name": "ENVIRONMENT",
+          "value": "${ENVIRONMENT}"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "DATABASE_URL",
+          "valueFrom": "/techvault/${ENVIRONMENT}/product-service/database-url"
+        },
+        {
+          "name": "REDIS_URL",
+          "valueFrom": "/techvault/${ENVIRONMENT}/redis/connection-string"
+        },
+        {
+          "name": "ELASTICSEARCH_URL",
+          "valueFrom": "/techvault/${ENVIRONMENT}/elasticsearch/connection-string"
+        },
+        {
+          "name": "JWT_SECRET",
+          "valueFrom": "/techvault/${ENVIRONMENT}/product-service/jwt-secret"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/techvault-product-service",
+          "awslogs-region": "${AWS_REGION}",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "curl -f http://localhost:5002/health || exit 1"
+        ],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      }
+    }
+  ]
+}

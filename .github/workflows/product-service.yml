@@ -1,0 +1,150 @@
+name: Product Service CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'product-service/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'product-service/**'
+
+env:
+  AWS_REGION: us-west-2
+  ECR_REPOSITORY: techvault-product
+  ECS_CLUSTER: techvault-production-cluster
+  ECS_SERVICE: techvault-production-product
+
+jobs:
+  test:
+    name: Test Product Service
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('product-service/go.sum') }}
+
+    - name: Install dependencies
+      working-directory: product-service
+      run: go mod download
+
+    - name: Run tests
+      working-directory: product-service
+      run: go test -v ./...
+
+    - name: Run linting
+      uses: golangci/golangci-lint-action@v3
+      with:
+        working-directory: product-service
+        version: latest
+
+    - name: Build application
+      working-directory: product-service
+      run: go build -v ./...
+
+    - name: Run security scan
+      uses: securecodewarrior/github-action-gosec@master
+      with:
+        args: './product-service/...'
+
+  build-and-deploy-dev:
+    name: Build and Deploy to Development
+    if: github.ref == 'refs/heads/develop'
+    needs: [test]
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Build and push Docker image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      working-directory: product-service
+      run: |
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:dev-latest
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:dev-latest
+
+    - name: Deploy to ECS Development
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        TASK_DEFINITION=$(aws ecs describe-task-definition --task-definition product-dev --query taskDefinition)
+        NEW_TASK_DEFINITION=$(echo $TASK_DEFINITION | jq --arg IMAGE "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" '.containerDefinitions[0].image = $IMAGE')
+        echo $NEW_TASK_DEFINITION | jq 'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .placementConstraints, .compatibilities, .registeredAt, .registeredBy)' > task-def.json
+        
+        aws ecs register-task-definition --cli-input-json file://task-def.json
+        aws ecs update-service --cluster $ECS_CLUSTER-dev --service $ECS_SERVICE-dev --task-definition product-dev
+        aws ecs wait services-stable --cluster $ECS_CLUSTER-dev --services $ECS_SERVICE-dev
+
+  build-and-deploy-prod:
+    name: Build and Deploy to Production
+    if: github.ref == 'refs/heads/main'
+    needs: [test]
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Build and push Docker image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      working-directory: product-service
+      run: |
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+    - name: Deploy to ECS Production
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        TASK_DEFINITION=$(aws ecs describe-task-definition --task-definition product-prod --query taskDefinition)
+        NEW_TASK_DEFINITION=$(echo $TASK_DEFINITION | jq --arg IMAGE "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" '.containerDefinitions[0].image = $IMAGE')
+        echo $NEW_TASK_DEFINITION | jq 'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .placementConstraints, .compatibilities, .registeredAt, .registeredBy)' > task-def.json
+        
+        aws ecs register-task-definition --cli-input-json file://task-def.json
+        aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE --task-definition product-prod
+        aws ecs wait services-stable --cluster $ECS_CLUSTER --services $ECS_SERVICE

@@ -1,0 +1,72 @@
+{
+  "family": "techvault-auth-service",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "executionRoleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/techvaultTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "auth-service",
+      "image": "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/techvault-auth-service:${IMAGE_TAG}",
+      "portMappings": [
+        {
+          "containerPort": 5001,
+          "protocol": "tcp"
+        }
+      ],
+      "essential": true,
+      "environment": [
+        {
+          "name": "FLASK_ENV",
+          "value": "${ENVIRONMENT}"
+        },
+        {
+          "name": "PORT",
+          "value": "5001"
+        },
+        {
+          "name": "PYTHONPATH",
+          "value": "/app"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "DATABASE_URL",
+          "valueFrom": "/techvault/${ENVIRONMENT}/auth-service/database-url"
+        },
+        {
+          "name": "JWT_SECRET_KEY",
+          "valueFrom": "/techvault/${ENVIRONMENT}/auth-service/jwt-secret"
+        },
+        {
+          "name": "SECRET_KEY",
+          "valueFrom": "/techvault/${ENVIRONMENT}/auth-service/secret-key"
+        },
+        {
+          "name": "REDIS_URL",
+          "valueFrom": "/techvault/${ENVIRONMENT}/redis/connection-string"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/techvault-auth-service",
+          "awslogs-region": "${AWS_REGION}",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "curl -f http://localhost:5001/health || exit 1"
+        ],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      }
+    }
+  ]
+}

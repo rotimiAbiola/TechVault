@@ -1,26 +1,37 @@
-FROM python:3.11-slim
+FROM golang:1.21-alpine AS builder
 
-# Set working directory
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    postgresql-client \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+# Install git for go mod download
+RUN apk add --no-cache git
 
-# Copy requirements first for better caching
-COPY requirements.txt .
+# Copy go mod files
+COPY go.mod go.sum ./
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Download dependencies
+RUN go mod download
 
-# Copy application code
+# Copy source code
 COPY . .
 
+# Build the application
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main .
+
+# Final stage
+FROM alpine:latest
+
+# Install ca-certificates and curl for HTTPS and health checks
+RUN apk --no-cache add ca-certificates curl
+
+WORKDIR /root/
+
+# Copy the binary from builder
+COPY --from=builder /app/main .
+
 # Create non-root user
-RUN groupadd -r appuser && useradd -r -g appuser appuser
-RUN chown -R appuser:appuser /app
+RUN addgroup -g 1001 -S appuser && \
+    adduser -S appuser -u 1001 -G appuser
+RUN chown appuser:appuser /root/main
 USER appuser
 
 # Expose port
@@ -31,4 +42,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:5002/health || exit 1
 
 # Run the application
-CMD ["python", "app.py"]
+CMD ["./main"]

@@ -1,0 +1,213 @@
+name: Frontend CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'frontend/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+
+env:
+  AWS_REGION: us-west-2
+  ECR_REPOSITORY: techvault-frontend
+  ECS_CLUSTER: techvault-production-cluster
+  ECS_SERVICE: techvault-production-frontend
+
+jobs:
+  test:
+    name: Test Frontend
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: Install dependencies
+      working-directory: frontend
+      run: npm ci
+
+    - name: Run linting
+      working-directory: frontend
+      run: npm run lint
+
+    - name: Run type checking
+      working-directory: frontend
+      run: npm run type-check
+
+    - name: Run tests
+      working-directory: frontend
+      run: npm run test:ci
+
+    - name: Build application
+      working-directory: frontend
+      run: npm run build
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: frontend-build
+        path: frontend/dist/
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Install dependencies
+      working-directory: frontend
+      run: npm ci
+
+    - name: Run security audit
+      working-directory: frontend
+      run: npm audit --audit-level=high
+
+    - name: Run Snyk security scan
+      uses: snyk/actions/node@master
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      with:
+        args: frontend/ --severity-threshold=high
+
+  build-and-deploy-dev:
+    name: Build and Deploy to Development
+    if: github.ref == 'refs/heads/develop'
+    needs: [test, security]
+    runs-on: ubuntu-latest
+    environment: development
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Build and push Docker image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      working-directory: frontend
+      run: |
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:dev-latest
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:dev-latest
+
+    - name: Deploy to ECS Development
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        # Update task definition with new image
+        TASK_DEFINITION=$(aws ecs describe-task-definition --task-definition frontend-dev --query taskDefinition)
+        NEW_TASK_DEFINITION=$(echo $TASK_DEFINITION | jq --arg IMAGE "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" '.containerDefinitions[0].image = $IMAGE')
+        echo $NEW_TASK_DEFINITION | jq 'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .placementConstraints, .compatibilities, .registeredAt, .registeredBy)' > task-def.json
+        
+        # Register new task definition and update service
+        aws ecs register-task-definition --cli-input-json file://task-def.json
+        aws ecs update-service --cluster $ECS_CLUSTER-dev --service $ECS_SERVICE-dev --task-definition frontend-dev
+        
+        # Wait for deployment to complete
+        aws ecs wait services-stable --cluster $ECS_CLUSTER-dev --services $ECS_SERVICE-dev
+
+  build-and-deploy-prod:
+    name: Build and Deploy to Production
+    if: github.ref == 'refs/heads/main'
+    needs: [test, security]
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Build and push Docker image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      working-directory: frontend
+      run: |
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+    - name: Deploy to ECS Production
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        # Process task definition template
+        export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+        export AWS_REGION=${{ env.AWS_REGION }}
+        export ENVIRONMENT=production
+        export NODE_ENV=production
+        export API_GATEWAY_URL=https://api.techvault.com
+        export FRONTEND_URL=https://techvault.com
+        
+        # Create processed directory
+        mkdir -p aws/task-definitions/processed
+        
+        # Process template with current values
+        envsubst < aws/task-definitions/frontend.json > aws/task-definitions/processed/frontend-production.json
+        
+        # Register new task definition from processed file
+        TASK_DEFINITION_ARN=$(aws ecs register-task-definition \
+          --cli-input-json file://aws/task-definitions/processed/frontend-production.json \
+          --query 'taskDefinition.taskDefinitionArn' \
+          --output text)
+        
+        echo "Registered task definition: $TASK_DEFINITION_ARN"
+        
+        # Update service with new task definition
+        aws ecs update-service \
+          --cluster $ECS_CLUSTER \
+          --service $ECS_SERVICE \
+          --task-definition $TASK_DEFINITION_ARN \
+          --force-new-deployment
+        
+        # Wait for deployment to complete
+        aws ecs wait services-stable --cluster $ECS_CLUSTER --services $ECS_SERVICE
+
+    - name: Run post-deployment tests
+      run: |
+        # Get ALB URL from ECS service
+        ALB_URL=$(aws ecs describe-services --cluster $ECS_CLUSTER --services $ECS_SERVICE --query 'services[0].loadBalancers[0].targetGroupArn' --output text)
+        echo "Deployment completed. Service available at: $ALB_URL"

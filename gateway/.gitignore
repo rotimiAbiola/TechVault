@@ -1,0 +1,26 @@
+# Logs
+logs/
+*.log
+
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage/
+.nyc_output
+
+# Runtime
+*.pid
+*.seed
+*.pid.lock
