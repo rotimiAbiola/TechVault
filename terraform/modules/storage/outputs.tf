@@ -13,9 +13,19 @@ output "database_url_parameter_name" {
   value       = aws_ssm_parameter.database_url.name
 }
 
+output "database_url_parameter_arn" {
+  description = "SSM parameter ARN for database URL"
+  value       = aws_ssm_parameter.database_url.arn
+}
+
 output "elasticsearch_url_parameter_name" {
   description = "SSM parameter name for Elasticsearch URL"
   value       = aws_ssm_parameter.elasticsearch_url.name
+}
+
+output "elasticsearch_url_parameter_arn" {
+  description = "SSM parameter ARN for Elasticsearch URL"
+  value       = aws_ssm_parameter.elasticsearch_url.arn
 }
 
 output "redis_url_parameter_name" {
@@ -23,9 +33,19 @@ output "redis_url_parameter_name" {
   value       = aws_ssm_parameter.redis_url.name
 }
 
+output "redis_url_parameter_arn" {
+  description = "SSM parameter ARN for Redis URL"
+  value       = aws_ssm_parameter.redis_url.arn
+}
+
 output "jwt_secret_parameter_name" {
   description = "SSM parameter name for JWT secret"
   value       = aws_ssm_parameter.jwt_secret.name
+}
+
+output "jwt_secret_parameter_arn" {
+  description = "SSM parameter ARN for JWT secret"
+  value       = aws_ssm_parameter.jwt_secret.arn
 }
 
 output "jwt_secret" {

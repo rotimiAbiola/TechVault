@@ -28,3 +28,13 @@ tags = {
 
 # Monitoring configuration
 alert_email = "" # Add your email address for CloudWatch alerts
+
+# Container Images
+image_tag = "latest"
+frontend_image = "nginx"
+gateway_image = "techvault/gateway"
+auth_image = "techvault/auth-service"
+product_image = "techvault/product-service"
+payment_image = "techvault/payment-service"
+cart_image = "techvault/cart-service"
+order_image = "techvault/order-service"

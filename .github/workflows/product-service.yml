@@ -13,8 +13,12 @@ on:
 env:
   AWS_REGION: us-west-2
   ECR_REPOSITORY: techvault-product
-  ECS_CLUSTER: techvault-production-cluster
-  ECS_SERVICE: techvault-production-product
+  ECS_CLUSTER: techvault-cluster
+  ECS_SERVICE: techvault-product
+
+permissions:
+  id-token: write   # This is required for requesting the JWT
+  contents: read    # This is required for actions/checkout
 
 jobs:
   test:
@@ -72,8 +76,8 @@ jobs:
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+        role-session-name: ProductService-Deploy-Session
         aws-region: ${{ env.AWS_REGION }}
 
     - name: Login to Amazon ECR
@@ -96,55 +100,56 @@ jobs:
         ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         IMAGE_TAG: ${{ github.sha }}
       run: |
-        TASK_DEFINITION=$(aws ecs describe-task-definition --task-definition product-dev --query taskDefinition)
+        TASK_DEFINITION=$(aws ecs describe-task-definition --task-definition product --query taskDefinition)
         NEW_TASK_DEFINITION=$(echo $TASK_DEFINITION | jq --arg IMAGE "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" '.containerDefinitions[0].image = $IMAGE')
         echo $NEW_TASK_DEFINITION | jq 'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .placementConstraints, .compatibilities, .registeredAt, .registeredBy)' > task-def.json
         
         aws ecs register-task-definition --cli-input-json file://task-def.json
-        aws ecs update-service --cluster $ECS_CLUSTER-dev --service $ECS_SERVICE-dev --task-definition product-dev
-        aws ecs wait services-stable --cluster $ECS_CLUSTER-dev --services $ECS_SERVICE-dev
-
-  build-and-deploy-prod:
-    name: Build and Deploy to Production
-    if: github.ref == 'refs/heads/main'
-    needs: [test]
-    runs-on: ubuntu-latest
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ env.AWS_REGION }}
-
-    - name: Login to Amazon ECR
-      id: login-ecr
-      uses: aws-actions/amazon-ecr-login@v2
-
-    - name: Build and push Docker image
-      env:
-        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        IMAGE_TAG: ${{ github.sha }}
-      working-directory: product-service
-      run: |
-        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-        docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
-        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
-
-    - name: Deploy to ECS Production
-      env:
-        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        IMAGE_TAG: ${{ github.sha }}
-      run: |
-        TASK_DEFINITION=$(aws ecs describe-task-definition --task-definition product-prod --query taskDefinition)
-        NEW_TASK_DEFINITION=$(echo $TASK_DEFINITION | jq --arg IMAGE "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" '.containerDefinitions[0].image = $IMAGE')
-        echo $NEW_TASK_DEFINITION | jq 'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .placementConstraints, .compatibilities, .registeredAt, .registeredBy)' > task-def.json
-        
-        aws ecs register-task-definition --cli-input-json file://task-def.json
-        aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE --task-definition product-prod
+        aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE --task-definition product
         aws ecs wait services-stable --cluster $ECS_CLUSTER --services $ECS_SERVICE
+
+  # Production deployment disabled for now - only dev environment active
+  # build-and-deploy-prod:
+  #   name: Build and Deploy to Production
+  #   if: github.ref == 'refs/heads/main'
+  #   needs: [test]
+  #   runs-on: ubuntu-latest
+
+  #   steps:
+  #   - name: Checkout code
+  #     uses: actions/checkout@v4
+
+  #   - name: Configure AWS credentials
+  #     uses: aws-actions/configure-aws-credentials@v4
+  #     with:
+  #       role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+  #       role-session-name: ProductService-Deploy-Session
+  #       aws-region: ${{ env.AWS_REGION }}
+
+  #   - name: Login to Amazon ECR
+  #     id: login-ecr
+  #     uses: aws-actions/amazon-ecr-login@v2
+
+  #   - name: Build and push Docker image
+  #     env:
+  #       ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+  #       IMAGE_TAG: ${{ github.sha }}
+  #     working-directory: product-service
+  #     run: |
+  #       docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+  #       docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+  #       docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+  #       docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+  #   - name: Deploy to ECS Production
+  #     env:
+  #       ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+  #       IMAGE_TAG: ${{ github.sha }}
+  #     run: |
+  #       TASK_DEFINITION=$(aws ecs describe-task-definition --task-definition product-prod --query taskDefinition)
+  #       NEW_TASK_DEFINITION=$(echo $TASK_DEFINITION | jq --arg IMAGE "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" '.containerDefinitions[0].image = $IMAGE')
+  #       echo $NEW_TASK_DEFINITION | jq 'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .placementConstraints, .compatibilities, .registeredAt, .registeredBy)' > task-def.json
+        
+  #       aws ecs register-task-definition --cli-input-json file://task-def.json
+  #       aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE --task-definition product-prod
+  #       aws ecs wait services-stable --cluster $ECS_CLUSTER --services $ECS_SERVICE

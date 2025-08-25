@@ -7,8 +7,7 @@ variable "aws_region" {
 variable "environment" {
   description = "Environment name"
   type        = string
-  default     = "production"
-}
+  default     = "dev"
 }
 
 variable "project_name" {
@@ -23,154 +22,46 @@ variable "vpc_cidr" {
   default     = "10.0.0.0/16"
 }
 
-variable "availability_zones" {
-  description = "Availability zones"
-  type        = list(string)
-  default     = ["us-west-2a", "us-west-2b", "us-west-2c"]
-}
-
 variable "public_subnet_cidrs" {
   description = "CIDR blocks for public subnets"
   type        = list(string)
-  default     = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
+  default     = ["10.0.1.0/24", "10.0.2.0/24"]
 }
 
 variable "private_subnet_cidrs" {
   description = "CIDR blocks for private subnets"
   type        = list(string)
-  default     = ["10.0.4.0/24", "10.0.5.0/24", "10.0.6.0/24"]
+  default     = ["10.0.3.0/24", "10.0.4.0/24"]
 }
 
 variable "database_subnet_cidrs" {
   description = "CIDR blocks for database subnets"
   type        = list(string)
-  default     = ["10.0.7.0/24", "10.0.8.0/24", "10.0.9.0/24"]
-}
-
-variable "node_group_instance_types" {
-  description = "Instance types for ECS container instances"
-  type        = list(string)
-  default     = ["t3.medium", "t3.large"]
-}
-
-variable "frontend_cpu" {
-  description = "CPU units for frontend task"
-  type        = number
-  default     = 256
-}
-
-variable "frontend_memory" {
-  description = "Memory for frontend task"
-  type        = number
-  default     = 512
-}
-
-variable "backend_cpu" {
-  description = "CPU units for backend task"
-  type        = number
-  default     = 512
-}
-
-variable "backend_memory" {
-  description = "Memory for backend task"
-  type        = number
-  default     = 1024
-}
-
-variable "frontend_desired_count" {
-  description = "Desired number of frontend tasks"
-  type        = number
-  default     = 2
-}
-
-variable "backend_desired_count" {
-  description = "Desired number of backend tasks"
-  type        = number
-  default     = 2
-}
-
-variable "frontend_min_capacity" {
-  description = "Minimum frontend capacity"
-  type        = number
-  default     = 1
-}
-
-variable "frontend_max_capacity" {
-  description = "Maximum frontend capacity"
-  type        = number
-  default     = 10
-}
-
-variable "backend_min_capacity" {
-  description = "Minimum backend capacity"
-  type        = number
-  default     = 1
-}
-
-variable "backend_max_capacity" {
-  description = "Maximum backend capacity"
-  type        = number
-  default     = 20
-}
-
-variable "log_retention_days" {
-  description = "CloudWatch log retention in days"
-  type        = number
-  default     = 30
-}
-
-variable "alert_email" {
-  description = "Email address for CloudWatch alerts"
-  type        = string
-  default     = ""
+  default     = ["10.0.5.0/24", "10.0.6.0/24"]
 }
 
 variable "use_nat_instance" {
-  description = "Use NAT instance instead of NAT gateway (cost optimization)"
+  description = "Use NAT instance instead of NAT Gateway (cost optimization)"
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "key_pair_name" {
-  description = "EC2 Key Pair name for NAT instance SSH access"
+  description = "EC2 Key Pair name for NAT instance"
   type        = string
   default     = ""
-}
-
-variable "alert_email_addresses" {
-  description = "Email addresses for alerts"
-  type        = list(string)
-  default     = []
 }
 
 variable "rds_instance_class" {
   description = "RDS instance class"
   type        = string
-  default     = "db.r5.large"
+  default     = "db.t3.micro"
 }
 
 variable "rds_allocated_storage" {
   description = "RDS allocated storage in GB"
   type        = number
-  default     = 100
-}
-
-variable "elasticsearch_instance_type" {
-  description = "Elasticsearch instance type"
-  type        = string
-  default     = "r5.large.elasticsearch"
-}
-
-variable "elasticsearch_instance_count" {
-  description = "Number of Elasticsearch instances"
-  type        = number
-  default     = 2
-}
-
-variable "enable_elasticsearch" {
-  description = "Enable Elasticsearch domain"
-  type        = bool
-  default     = true
+  default     = 20
 }
 
 variable "redis_node_type" {
@@ -185,8 +76,87 @@ variable "redis_num_cache_nodes" {
   default     = 1
 }
 
+variable "elasticsearch_instance_type" {
+  description = "Elasticsearch instance type"
+  type        = string
+  default     = "t3.small.elasticsearch"
+}
+
+variable "elasticsearch_instance_count" {
+  description = "Number of Elasticsearch instances"
+  type        = number
+  default     = 1
+}
+
+variable "enable_elasticsearch" {
+  description = "Enable Elasticsearch domain"
+  type        = bool
+  default     = false
+}
+
+variable "log_retention_days" {
+  description = "CloudWatch log retention days"
+  type        = number
+  default     = 7
+}
+
+variable "alert_email" {
+  description = "Email for CloudWatch alerts"
+  type        = string
+  default     = "admin@techvault.com"
+}
+
 variable "tags" {
-  description = "Additional tags"
+  description = "Additional tags to apply to resources"
   type        = map(string)
   default     = {}
+}
+
+# Container Image Variables
+variable "image_tag" {
+  description = "Tag for container images"
+  type        = string
+  default     = "latest"
+}
+
+variable "frontend_image" {
+  description = "Container image for frontend service"
+  type        = string
+  default     = "nginx"
+}
+
+variable "gateway_image" {
+  description = "Container image for gateway service"
+  type        = string
+  default     = "techvault/gateway"
+}
+
+variable "auth_image" {
+  description = "Container image for auth service"
+  type        = string
+  default     = "techvault/auth-service"
+}
+
+variable "product_image" {
+  description = "Container image for product service"
+  type        = string
+  default     = "techvault/product-service"
+}
+
+variable "payment_image" {
+  description = "Container image for payment service"
+  type        = string
+  default     = "techvault/payment-service"
+}
+
+variable "cart_image" {
+  description = "Container image for cart service"
+  type        = string
+  default     = "techvault/cart-service"
+}
+
+variable "order_image" {
+  description = "Container image for order service"
+  type        = string
+  default     = "techvault/order-service"
 }

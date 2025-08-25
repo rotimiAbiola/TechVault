@@ -4,13 +4,10 @@ data "aws_availability_zones" "available" {
 }
 
 # Random password for database
-resource "random_p# Elasticsearch Domain (Optional for cost optimization)
-resource "aws_elasticsearch_domain" "main" {
-  count                = var.enable_elasticsearch ? 1 : 0
-  domain_name          = "${var.project_name}-${var.environment}-elasticsearch"
-  elasticsearch_version = "7.10"ord" "db_password" {
+resource "random_password" "db_password" {
   length  = 16
   special = true
+  override_special = "!#$%&*()-_=+[]{}<>:?"
 }
 
 # RDS Subnet Group
@@ -77,7 +74,7 @@ resource "aws_db_instance" "main" {
 
   # Engine configuration
   engine         = "postgres"
-  engine_version = "15.4"
+  engine_version = "15.7"
   instance_class = var.rds_instance_class
 
   # Storage configuration

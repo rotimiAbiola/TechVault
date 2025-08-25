@@ -67,6 +67,10 @@ cookies.txt
 *.tfstate.*
 .terraform/
 .terraform.lock.hcl
+# Temporary terraform files
+create_bucket.tf
+state_bucket.tf
+errored.tfstate
 
 # AWS
 .aws/
