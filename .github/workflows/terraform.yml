@@ -5,6 +5,21 @@ on:
     branches: [main, develop]
     paths:
       - 'terraform/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'development'
+        type: choice
+        options:
+          - development
+          - production
+      apply:
+        description: 'Run terraform apply (if false, only plan)'
+        required: true
+        default: false
+        type: boolean
   # pull_request:
   #   branches: [main]
   #   paths:
@@ -82,7 +97,7 @@ jobs:
 
   terraform-plan-dev:
     name: Terraform Plan (Development)
-    if: github.event_name == 'pull_request'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/develop') || (github.event_name == 'workflow_dispatch' && inputs.environment == 'development')
     needs: [terraform-validate, terraform-security]
     runs-on: ubuntu-latest
     environment: development
@@ -115,8 +130,8 @@ jobs:
 
   terraform-apply-dev:
     name: Terraform Apply (Development)
-    if: github.ref == 'refs/heads/develop'
-    needs: [terraform-validate, terraform-security]
+    if: (github.ref == 'refs/heads/develop') || (github.event_name == 'workflow_dispatch' && inputs.environment == 'development' && inputs.apply == true)
+    needs: [terraform-plan-dev]
     runs-on: ubuntu-latest
     environment: development
 
@@ -132,8 +147,8 @@ jobs:
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+        role-session-name: TechVault-Terraform-Apply-Session
         aws-region: ${{ env.AWS_REGION }}
 
     - name: Terraform Init
@@ -144,44 +159,73 @@ jobs:
       working-directory: terraform
       run: terraform apply -var-file="environments/dev.tfvars" -auto-approve
 
-  # terraform-apply-prod:
-  #   name: Terraform Apply (Production)
-  #   if: github.ref == 'refs/heads/main'
-  #   needs: [terraform-validate, terraform-security]
-  #   runs-on: ubuntu-latest
-  #   environment: production
+  terraform-plan-prod:
+    name: Terraform Plan (Production)
+    if: (github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.environment == 'production')
+    needs: [terraform-validate, terraform-security]
+    runs-on: ubuntu-latest
+    environment: production
 
-  #   steps:
-  #   - name: Checkout code
-  #     uses: actions/checkout@v4
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-  #   - name: Setup Terraform
-  #     uses: hashicorp/setup-terraform@v3
-  #     with:
-  #       terraform_version: ${{ env.TF_VERSION }}
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
 
-  #   - name: Configure AWS credentials
-  #     uses: aws-actions/configure-aws-credentials@v4
-  #     with:
-  #       role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-  #       role-session-name: TechVault-Terraform-Session
-  #       aws-region: ${{ env.AWS_REGION }}
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+        role-session-name: TechVault-Terraform-Prod-Plan-Session
+        aws-region: ${{ env.AWS_REGION }}
 
-  #   - name: Terraform Init
-  #     working-directory: terraform
-  #     run: terraform init
+    - name: Terraform Init
+      working-directory: terraform
+      run: terraform init
 
-  #   - name: Terraform Plan
-  #     working-directory: terraform
-  #     run: terraform plan -var-file="environments/prod.tfvars" -no-color
+    - name: Terraform Plan
+      working-directory: terraform
+      run: |
+        terraform plan -var-file="environments/prod.tfvars" -no-color -out=tfplan-prod
+        terraform show -no-color tfplan-prod
 
-  #   - name: Terraform Apply
-  #     working-directory: terraform
-  #     run: terraform apply -var-file="environments/prod.tfvars" -auto-approve
+  terraform-apply-prod:
+    name: Terraform Apply (Production)
+    if: (github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.environment == 'production' && inputs.apply == true)
+    needs: [terraform-plan-prod]
+    runs-on: ubuntu-latest
+    environment: production
 
-  #   - name: Output Infrastructure Info
-  #     working-directory: terraform
-  #     run: |
-  #       echo "## Infrastructure Deployment Complete 🚀" >> $GITHUB_STEP_SUMMARY
-  #       echo "### Outputs:" >> $GITHUB_STEP_SUMMARY
-  #       terraform output >> $GITHUB_STEP_SUMMARY
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+        role-session-name: TechVault-Terraform-Prod-Apply-Session
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Terraform Init
+      working-directory: terraform
+      run: terraform init
+
+    - name: Terraform Apply
+      working-directory: terraform
+      run: terraform apply -var-file="environments/prod.tfvars" -auto-approve
+
+    - name: Output Infrastructure Info
+      working-directory: terraform
+      run: |
+        echo "## Infrastructure Deployment Complete 🚀" >> $GITHUB_STEP_SUMMARY
+        echo "### Outputs:" >> $GITHUB_STEP_SUMMARY
+        terraform output >> $GITHUB_STEP_SUMMARY
