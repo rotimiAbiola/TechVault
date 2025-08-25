@@ -11,27 +11,27 @@ locals {
 module "vpc" {
   source = "./modules/vpc"
 
-  project_name             = var.project_name
-  environment              = var.environment
-  vpc_cidr                 = var.vpc_cidr
-  public_subnet_cidrs      = var.public_subnet_cidrs
-  private_subnet_cidrs     = var.private_subnet_cidrs
-  database_subnet_cidrs    = var.database_subnet_cidrs
-  availability_zones       = data.aws_availability_zones.available.names
-  use_nat_instance         = var.use_nat_instance
-  key_pair_name            = var.key_pair_name
-  common_tags              = local.common_tags
+  project_name          = var.project_name
+  environment           = var.environment
+  vpc_cidr              = var.vpc_cidr
+  public_subnet_cidrs   = var.public_subnet_cidrs
+  private_subnet_cidrs  = var.private_subnet_cidrs
+  database_subnet_cidrs = var.database_subnet_cidrs
+  availability_zones    = data.aws_availability_zones.available.names
+  use_nat_instance      = var.use_nat_instance
+  key_pair_name         = var.key_pair_name
+  common_tags           = local.common_tags
 }
 
 # Security Module
 module "security" {
   source = "./modules/security"
 
-  project_name     = var.project_name
-  environment      = var.environment
-  vpc_id           = module.vpc.vpc_id
-  vpc_cidr_block   = module.vpc.vpc_cidr_block
-  common_tags      = local.common_tags
+  project_name   = var.project_name
+  environment    = var.environment
+  vpc_id         = module.vpc.vpc_id
+  vpc_cidr_block = module.vpc.vpc_cidr_block
+  common_tags    = local.common_tags
 }
 
 # Database Module
@@ -75,21 +75,21 @@ module "storage" {
 module "ecs" {
   source = "./modules/ecs"
 
-  project_name                   = var.project_name
-  environment                    = var.environment
-  vpc_id                         = module.vpc.vpc_id
-  public_subnet_ids              = module.vpc.public_subnet_ids
-  private_subnet_ids             = module.vpc.private_subnet_ids
-  alb_security_group_id          = module.security.alb_security_group_id
-  ecs_service_security_group_id  = module.security.ecs_service_security_group_id
-  alb_logs_bucket_id             = module.storage.alb_logs_bucket_id
-  
+  project_name                  = var.project_name
+  environment                   = var.environment
+  vpc_id                        = module.vpc.vpc_id
+  public_subnet_ids             = module.vpc.public_subnet_ids
+  private_subnet_ids            = module.vpc.private_subnet_ids
+  alb_security_group_id         = module.security.alb_security_group_id
+  ecs_service_security_group_id = module.security.ecs_service_security_group_id
+  alb_logs_bucket_id            = module.storage.alb_logs_bucket_id
+
   # SSM Parameter ARNs
-  database_url_parameter_arn     = module.storage.database_url_parameter_arn
-  redis_url_parameter_arn        = module.storage.redis_url_parameter_arn
-  jwt_secret_parameter_arn       = module.storage.jwt_secret_parameter_arn
+  database_url_parameter_arn      = module.storage.database_url_parameter_arn
+  redis_url_parameter_arn         = module.storage.redis_url_parameter_arn
+  jwt_secret_parameter_arn        = module.storage.jwt_secret_parameter_arn
   elasticsearch_url_parameter_arn = module.storage.elasticsearch_url_parameter_arn
-  
+
   # Container Images
   image_tag      = var.image_tag
   frontend_image = var.frontend_image
@@ -99,8 +99,8 @@ module "ecs" {
   payment_image  = var.payment_image
   cart_image     = var.cart_image
   order_image    = var.order_image
-  
-  common_tags                    = local.common_tags
+
+  common_tags = local.common_tags
 }
 
 # Monitoring Module
@@ -115,9 +115,9 @@ module "monitoring" {
   common_tags        = local.common_tags
 
   # Resource identifiers from other modules
-  ecs_cluster_name  = module.ecs.ecs_cluster_name
-  alb_arn_suffix    = module.ecs.alb_arn_suffix
-  rds_instance_id   = module.database.rds_instance_id
-  redis_cluster_id  = module.database.redis_cluster_id
-  log_group_names   = module.ecs.log_group_names
+  ecs_cluster_name = module.ecs.ecs_cluster_name
+  alb_arn_suffix   = module.ecs.alb_arn_suffix
+  rds_instance_id  = module.database.rds_instance_id
+  redis_cluster_id = module.database.redis_cluster_id
+  log_group_names  = module.ecs.log_group_names
 }
