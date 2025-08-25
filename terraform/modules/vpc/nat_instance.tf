@@ -1,14 +1,14 @@
 # Cost-optimized VPC with NAT Instance instead of NAT Gateway
 # This can save ~$35/month compared to NAT Gateway
 
-# Data source for NAT Instance AMI
+# Data source for NAT Instance AMI - Using Amazon Linux 2
 data "aws_ami" "nat_instance" {
   most_recent = true
   owners      = ["amazon"]
 
   filter {
     name   = "name"
-    values = ["amzn-ami-vpc-nat-*"]
+    values = ["amzn2-ami-hvm-*-x86_64-gp2"]
   }
 
   filter {
@@ -88,7 +88,7 @@ resource "aws_eip" "nat_instance" {
 # Route for NAT Instance
 resource "aws_route" "private_nat_instance" {
   count                  = var.use_nat_instance ? length(var.private_subnet_cidrs) : 0
-  route_table_id         = aws_route_table.private[count.index].id
+  route_table_id         = aws_route_table.private_nat_instance[count.index].id
   destination_cidr_block = "0.0.0.0/0"
-  instance_id            = aws_instance.nat_instance[0].id
+  network_interface_id   = aws_instance.nat_instance[0].primary_network_interface_id
 }

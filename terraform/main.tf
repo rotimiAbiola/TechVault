@@ -1,60 +1,3 @@
-terraform {
-  required_version = ">= 1.0"
-  
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      ver# Monitoring Module
-module "monitoring" {
-  source = "./modules/monitoring"
-
-  project_name      = var.project_name
-  environment       = var.environment
-  aws_region        = var.aws_region
-  log_retention_days = var.log_retention_days
-  alert_email       = var.alert_email
-  common_tags       = local.common_tags
-
-  # Resource identifiers from other modules
-  ecs_cluster_name  = module.ecs.ecs_cluster_name
-  alb_arn_suffix    = module.ecs.alb_arn_suffix
-  rds_instance_id   = module.database.rds_instance_id
-  redis_cluster_id  = module.database.redis_cluster_id
-  log_group_names   = module.ecs.log_group_names
-}    }
-    random = {
-      source  = "hashicorp/random"
-      version = "~> 3.1"
-    }
-  }
-
-  backend "s3" {
-    bucket = "your-terraform-state-bucket"
-    key    = "techvault/terraform.tfstate"
-    region = "us-west-2"
-  }
-}
-
-# Configure AWS Provider
-provider "aws" {
-  region = var.aws_region
-  
-  default_tags {
-    tags = {
-      Project     = "techvault"
-      Environment = var.environment
-      ManagedBy   = "terraform"
-    }
-  }
-}
-
-# Data sources
-data "aws_availability_zones" "available" {
-  state = "available"
-}
-
-data "aws_caller_identity" "current" {}
-
 # Local values
 locals {
   common_tags = {
@@ -140,6 +83,23 @@ module "ecs" {
   alb_security_group_id          = module.security.alb_security_group_id
   ecs_service_security_group_id  = module.security.ecs_service_security_group_id
   alb_logs_bucket_id             = module.storage.alb_logs_bucket_id
+  
+  # SSM Parameter ARNs
+  database_url_parameter_arn     = module.storage.database_url_parameter_arn
+  redis_url_parameter_arn        = module.storage.redis_url_parameter_arn
+  jwt_secret_parameter_arn       = module.storage.jwt_secret_parameter_arn
+  elasticsearch_url_parameter_arn = module.storage.elasticsearch_url_parameter_arn
+  
+  # Container Images
+  image_tag      = var.image_tag
+  frontend_image = var.frontend_image
+  gateway_image  = var.gateway_image
+  auth_image     = var.auth_image
+  product_image  = var.product_image
+  payment_image  = var.payment_image
+  cart_image     = var.cart_image
+  order_image    = var.order_image
+  
   common_tags                    = local.common_tags
 }
 
@@ -147,16 +107,17 @@ module "ecs" {
 module "monitoring" {
   source = "./modules/monitoring"
 
-  project_name      = var.project_name
-  environment       = var.environment
-  aws_region        = var.aws_region
+  project_name       = var.project_name
+  environment        = var.environment
+  aws_region         = var.aws_region
   log_retention_days = var.log_retention_days
-  alert_email       = var.alert_email
-  common_tags       = local.common_tags
+  alert_email        = var.alert_email
+  common_tags        = local.common_tags
 
   # Resource identifiers from other modules
-  ecs_cluster_name  = module.ecs.cluster_name
+  ecs_cluster_name  = module.ecs.ecs_cluster_name
   alb_arn_suffix    = module.ecs.alb_arn_suffix
   rds_instance_id   = module.database.rds_instance_id
   redis_cluster_id  = module.database.redis_cluster_id
+  log_group_names   = module.ecs.log_group_names
 }

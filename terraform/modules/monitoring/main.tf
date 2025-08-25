@@ -289,6 +289,4 @@ resource "aws_cloudwatch_dashboard" "main" {
       }
     ]
   })
-
-  tags = var.common_tags
 }
